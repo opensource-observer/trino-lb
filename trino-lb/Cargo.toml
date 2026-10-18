@@ -60,3 +60,4 @@ urlencoding.workspace = true
 [dev-dependencies]
 indoc.workspace = true
 rstest.workspace = true
+wiremock.workspace = true

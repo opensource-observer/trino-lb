@@ -206,6 +206,9 @@ pub struct TrinoClusterConfig {
     ///
     /// Note that the path of the URL is ignored.
     pub external_endpoint: Option<Url>,
+    /// Used to log into the Web UI to poll cluster stats. Defaults to user `trino-lb` with an empty
+    /// password, which a coordinator without an authenticator accepts over HTTP.
+    #[serde(default)]
     pub credentials: TrinoClusterCredentialsConfig,
 }
 
@@ -232,6 +235,15 @@ pub struct MinClustersConfig {
     pub time_utc: String,
     pub weekdays: String,
     pub min: u64,
+}
+
+impl Default for TrinoClusterCredentialsConfig {
+    fn default() -> Self {
+        Self {
+            username: "trino-lb".to_owned(),
+            password: String::new(),
+        }
+    }
 }
 
 impl Debug for TrinoClusterCredentialsConfig {
@@ -345,6 +357,7 @@ fn default_scaler_reconcile_interval() -> Duration {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub enum ScalerConfigImplementation {
     Stackable(StackableScalerConfig),
+    Rest(RestScalerConfig),
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -358,6 +371,41 @@ pub struct StackableScalerConfig {
 pub struct StackableCluster {
     pub name: String,
     pub namespace: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct RestScalerConfig {
+    pub endpoint: Url,
+    /// Headers sent with every request, e.g. for authentication.
+    #[serde(default)]
+    pub headers: HashMap<String, RestScalerHeaderValue>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub enum RestScalerHeaderValue {
+    Value(String),
+    /// Re-read on every request, so a rotated credential (e.g. a projected ServiceAccount token)
+    /// is picked up. The file content is trimmed and appended to `prefix`.
+    FromFile {
+        path: PathBuf,
+        #[serde(default)]
+        prefix: String,
+    },
+}
+
+impl Debug for RestScalerHeaderValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Value(_) => f.debug_tuple("Value").field(&"<redacted>").finish(),
+            Self::FromFile { path, prefix } => f
+                .debug_struct("FromFile")
+                .field("path", path)
+                .field("prefix", prefix)
+                .finish(),
+        }
+    }
 }
 
 impl Config {

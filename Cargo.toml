@@ -100,6 +100,7 @@ trait-variant = "0.1"
 trino-rust-client = "0.11"
 url = { version = "2.5", features = ["serde"] }
 urlencoding = "2.1"
+wiremock = "0.6"
 
 # For trino-lb-bench
 indicatif = "0.18"

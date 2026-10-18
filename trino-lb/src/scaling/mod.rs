@@ -7,6 +7,7 @@ use std::{
 use chrono::{DateTime, Utc};
 use enum_dispatch::enum_dispatch;
 use futures::future::try_join_all;
+use rest::RestScaler;
 use snafu::{OptionExt, ResultExt, Snafu};
 use stackable::StackableScaler;
 use tokio::{
@@ -26,6 +27,7 @@ use self::config::TrinoClusterGroupAutoscaling;
 use crate::cluster_group_manager::TrinoCluster;
 
 pub mod config;
+pub mod rest;
 pub mod stackable;
 
 #[derive(Snafu, Debug)]
@@ -37,6 +39,13 @@ pub enum Error {
         source: Box<stackable::Error>,
     },
 
+    #[snafu(display("REST scaling error"), context(false))]
+    #[allow(clippy::enum_variant_names)]
+    RestError {
+        #[snafu(source(from(rest::Error, Box::new)))]
+        source: Box<rest::Error>,
+    },
+
     #[snafu(display(
         "Configuration error: A specific Trino cluster can only be part of a single clusterGroup. Please make sure the Trino cluster {cluster_name:?} only is part of a single clusterGroup."
     ))]
@@ -46,6 +55,12 @@ pub enum Error {
     CreateStackableAutoscaler {
         #[snafu(source(from(stackable::Error, Box::new)))]
         source: Box<stackable::Error>,
+    },
+
+    #[snafu(display("Failed to create REST autoscaler"))]
+    CreateRestAutoscaler {
+        #[snafu(source(from(rest::Error, Box::new)))]
+        source: Box<rest::Error>,
     },
 
     #[snafu(display("Failed to get the counter of running queries on the cluster {cluster:?}"))]
@@ -175,6 +190,11 @@ impl Scaler {
                         StackableScaler::new(scaler_config, &config.trino_cluster_groups)
                             .await
                             .context(CreateStackableAutoscalerSnafu)?
+                            .into()
+                    }
+                    ScalerConfigImplementation::Rest(scaler_config) => {
+                        RestScaler::new(scaler_config)
+                            .context(CreateRestAutoscalerSnafu)?
                             .into()
                     }
                 };
@@ -667,4 +687,5 @@ pub trait ScalerTrait {
 #[enum_dispatch]
 pub enum ScalerImplementation {
     Stackable(StackableScaler),
+    Rest(RestScaler),
 }

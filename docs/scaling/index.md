@@ -17,3 +17,4 @@ An alternative use-case is to scale up the `etl` cluster group just before 02:00
 Currently the following autoscalers are implemented:
 
 1. [Stackable](./stackable.md)
+2. [REST](./rest.md)
