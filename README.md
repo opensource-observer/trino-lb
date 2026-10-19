@@ -16,6 +16,7 @@ It proxies calls to the underlying Trino clusters by mimicking the Trino protoco
   * [Postgres](./docs/persistence/postgres.md)
 * [Scaling](./docs/scaling/index.md)
   * [Stackable](./docs/scaling/stackable.md)
+  * [REST](./docs/scaling/rest.md)
 
 ## Try it out locally
 

@@ -1,0 +1,94 @@
+openapi: 3.1.0
+info:
+  title: trino-lb REST scaler API
+  version: "1"
+  description: |
+    The API a service implements so trino-lb's REST autoscaler can turn Trino
+    clusters on and off. Cluster names are the names trino-lb uses for them in
+    `trinoClusterGroups`.
+# trino-lb can send any configured headers; bearer auth is the common case.
+security:
+  - {}
+  - bearerAuth: []
+paths:
+  /v1/clusters/{cluster}:
+    parameters:
+      - name: cluster
+        in: path
+        required: true
+        description: The trino-lb cluster name, e.g. `tier-1-0`.
+        schema:
+          type: string
+    get:
+      operationId: getCluster
+      summary: Read a cluster's activation and readiness
+      responses:
+        "200":
+          description: The cluster's current status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClusterStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateCluster
+      summary: Activate or deactivate a cluster
+      description: |
+        Sets whether the cluster should run. Idempotent: trino-lb sends the
+        desired state on every reconcile, whether or not it changed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClusterUpdate"
+      responses:
+        "200":
+          description: The cluster's status after the update.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClusterStatus"
+        "400":
+          description: The request body is not a valid `ClusterUpdate`.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    ClusterStatus:
+      type: object
+      required: [activated, ready]
+      properties:
+        activated:
+          type: boolean
+          description: Whether the cluster is meant to be running.
+        ready:
+          type: boolean
+          description: Whether the cluster is running and can take queries.
+    ClusterUpdate:
+      type: object
+      required: [activated]
+      additionalProperties: false
+      properties:
+        activated:
+          type: boolean
+  responses:
+    Unauthorized:
+      description: The credentials are missing or invalid.
+    Forbidden:
+      description: The caller may not use this API.
+    NotFound:
+      description: No cluster with this name.

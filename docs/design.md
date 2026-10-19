@@ -114,6 +114,7 @@ As an extreme this enables you to have on-demand clusters: There are certain `xl
 Currently the following autoscalers are implemented:
 
 1. [Stackable](./scaling/stackable.md): Autoscales [Stackable TrinoClusters](https://docs.stackable.tech/home/stable/trino/), which are part of the Stackable Data Platform (SDP)
+2. [REST](./scaling/rest.md): Turns clusters on and off through a small REST API that any service can implement
 
 Read on the [scaling page](./scaling/index.md) for more details.
 
