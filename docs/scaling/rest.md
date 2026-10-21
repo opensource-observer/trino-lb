@@ -37,6 +37,23 @@ A header is either a literal `value` or read `fromFile`. A file is re-read on ev
 If the clusters' coordinators run without an authenticator, `credentials` can be left out of the `trinoClusters` entries.
 trino-lb then logs into the Web UI (to poll cluster stats) as user `trino-lb` with an empty password.
 
+A cluster entry's optional `webUiHeaders` (same shape as `headers` above) go with every stats poll.
+With `Authorization` among them, trino-lb skips the login and sends that header instead, e.g. a bearer token for a coordinator with `web-ui.authentication.type=jwt`.
+Trino checks a token only on a secure request, so a coordinator reached over plain HTTP with `http-server.process-forwarded=true` also needs `X-Forwarded-Proto: https`:
+
+```yaml
+    trinoClusters:
+      - name: tier-1-0
+        endpoint: http://tier-1-0-coordinator.trino.svc.cluster.local:8080
+        webUiHeaders:
+          Authorization:
+            fromFile:
+              path: /var/run/secrets/trino-web-ui/token
+              prefix: "Bearer "
+          X-Forwarded-Proto:
+            value: https
+```
+
 ```yaml
 trinoClusterGroups:
   tier-1:

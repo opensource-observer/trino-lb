@@ -5,23 +5,39 @@ use std::{
 };
 
 use futures::{TryFutureExt, future::join_all};
-use snafu::Snafu;
+use snafu::{ResultExt, Snafu};
 use tokio::time;
 use tracing::{Instrument, error, info, info_span, instrument};
 use trino_lb_core::{TrinoClusterName, config::TrinoClusterConfig, trino_cluster::ClusterState};
 use trino_lb_persistence::{Persistence, PersistenceImplementation};
 
-use crate::{config::TrinoClusterGroupConfig, metrics::Metrics, trino_client::get_cluster_info};
+use crate::{
+    config::TrinoClusterGroupConfig,
+    configured_headers::{self, ConfiguredHeaders},
+    metrics::Metrics,
+    trino_client::get_cluster_info,
+};
 
 #[derive(Snafu, Debug)]
 pub enum Error {
     #[snafu(display("Failed to create HTTP client"))]
     CreateHttpClient { source: reqwest::Error },
+
+    #[snafu(display("Invalid webUiHeaders of Trino cluster {cluster}"))]
+    WebUiHeaders {
+        source: configured_headers::Error,
+        cluster: TrinoClusterName,
+    },
+}
+
+struct PolledCluster {
+    config: TrinoClusterConfig,
+    web_ui_headers: ConfiguredHeaders,
 }
 
 pub struct QueryCountFetcher {
     persistence: Arc<PersistenceImplementation>,
-    clusters: Vec<TrinoClusterConfig>,
+    clusters: Vec<PolledCluster>,
     ignore_certs: bool,
     refresh_query_counter_interval: Duration,
     metrics: Arc<Metrics>,
@@ -43,7 +59,19 @@ impl QueryCountFetcher {
             .flat_map(|g| &g.trino_clusters)
             .map(|c| (&c.name, c))
             .collect();
-        let clusters = clusters.into_values().cloned().collect();
+        let clusters = clusters
+            .into_values()
+            .map(|config| {
+                let web_ui_headers =
+                    ConfiguredHeaders::new(&config.web_ui_headers).context(WebUiHeadersSnafu {
+                        cluster: config.name.clone(),
+                    })?;
+                Ok(PolledCluster {
+                    config: config.clone(),
+                    web_ui_headers,
+                })
+            })
+            .collect::<Result<_, Error>>()?;
 
         Ok(Self {
             persistence,
@@ -124,7 +152,7 @@ impl QueryCountFetcher {
                 let cluster_states = join_all(
                     self.clusters
                     .iter()
-                    .map(|c| self.persistence.get_cluster_state(&c.name)
+                    .map(|c| self.persistence.get_cluster_state(&c.config.name)
                         .unwrap_or_else(|_| ClusterState::Unknown))
                 ).await;
 
@@ -155,11 +183,12 @@ impl QueryCountFetcher {
     /// - In case we know the cluster is not reachable (e.g. the cluster is turned off or currently
     ///   starting), store a query count of zero (0) to avoid dangling clusters with non-zero query
     ///   counts.
-    #[instrument(skip(self, cluster), fields(cluster.name))]
-    async fn process_cluster(&self, cluster: &TrinoClusterConfig, state: ClusterState) {
+    #[instrument(skip(self, polled), fields(cluster.name))]
+    async fn process_cluster(&self, polled: &PolledCluster, state: ClusterState) {
+        let cluster = &polled.config;
         match state {
             ClusterState::Ready | ClusterState::Unhealthy | ClusterState::Draining { .. } => {
-                self.fetch_and_store_query_count(cluster).await;
+                self.fetch_and_store_query_count(polled).await;
             }
             ClusterState::Unknown
             | ClusterState::Stopped
@@ -181,10 +210,16 @@ impl QueryCountFetcher {
         }
     }
 
-    #[instrument(skip(self, cluster), fields(cluster.name))]
-    async fn fetch_and_store_query_count(&self, cluster: &TrinoClusterConfig) {
-        let cluster_info =
-            get_cluster_info(&cluster.endpoint, self.ignore_certs, &cluster.credentials).await;
+    #[instrument(skip(self, polled), fields(cluster.name))]
+    async fn fetch_and_store_query_count(&self, polled: &PolledCluster) {
+        let cluster = &polled.config;
+        let cluster_info = get_cluster_info(
+            &cluster.endpoint,
+            self.ignore_certs,
+            &cluster.credentials,
+            &polled.web_ui_headers,
+        )
+        .await;
 
         match cluster_info {
             Ok(cluster_info) => {
