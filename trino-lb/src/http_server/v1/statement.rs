@@ -587,7 +587,7 @@ async fn handle_head_request_to_trino(
 pub async fn delete_trino_lb_statement(
     State(state): State<Arc<AppState>>,
     Path((query_id, _)): Path<(TrinoLbQueryId, u64)>,
-) -> Result<(), Error> {
+) -> Result<StatusCode, Error> {
     state
         .metrics
         .http_counter
@@ -606,7 +606,7 @@ pub async fn delete_trino_lb_statement(
         .await
         .context(DeleteQueuedQueryFromPersistenceSnafu { query_id })?;
 
-    Ok(())
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// This function get's asked to cancel a query that is already sent to an Trino cluster, but is still queued on the
@@ -621,13 +621,16 @@ pub async fn delete_trino_queued_statement(
     State(state): State<Arc<AppState>>,
     Path((query_id, _, _)): Path<(TrinoQueryId, String, u64)>,
     uri: Uri,
-) -> Result<(), Error> {
+) -> Result<StatusCode, Error> {
     state.metrics.http_counter.add(
         1,
         &[KeyValue::new("resource", "delete_trino_queued_statement")],
     );
 
-    cancel_query_on_trino(headers, &state, query_id, uri.path()).await
+    cancel_query_on_trino(headers, &state, query_id, uri.path()).await?;
+    // Trino answers a cancel with 204, and clients (e.g. the Python client) treat
+    // any other status as a failed cancel.
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// This function get's asked to cancel a query that is already sent to an Trino cluster and currently running.
@@ -641,7 +644,7 @@ pub async fn delete_trino_executing_statement(
     State(state): State<Arc<AppState>>,
     Path((query_id, _, _)): Path<(TrinoQueryId, String, u64)>,
     uri: Uri,
-) -> Result<(), Error> {
+) -> Result<StatusCode, Error> {
     state.metrics.http_counter.add(
         1,
         &[KeyValue::new(
@@ -650,7 +653,8 @@ pub async fn delete_trino_executing_statement(
         )],
     );
 
-    cancel_query_on_trino(headers, &state, query_id, uri.path()).await
+    cancel_query_on_trino(headers, &state, query_id, uri.path()).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[instrument(
