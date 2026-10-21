@@ -1,20 +1,15 @@
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 
-use reqwest::{
-    Client, Method, Response,
-    header::{HeaderName, HeaderValue, InvalidHeaderName, InvalidHeaderValue},
-};
+use reqwest::{Client, Method, Response};
 use serde::Deserialize;
 use serde_json::json;
 use snafu::{ResultExt, Snafu};
 use tracing::{Instrument, debug_span, instrument};
-use trino_lb_core::{
-    TrinoClusterName,
-    config::{RestScalerConfig, RestScalerHeaderValue},
-};
+use trino_lb_core::{TrinoClusterName, config::RestScalerConfig};
 use url::Url;
 
 use super::ScalerTrait;
+use crate::configured_headers::{self, ConfiguredHeaders};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -23,24 +18,8 @@ pub enum Error {
     #[snafu(display("Failed to construct http client"))]
     ConstructHttpClient { source: reqwest::Error },
 
-    #[snafu(display("Invalid header name {name:?}"))]
-    InvalidHeaderName {
-        source: InvalidHeaderName,
-        name: String,
-    },
-
-    #[snafu(display("Failed to read the value of header {name} from {path:?}"))]
-    ReadHeaderFile {
-        source: std::io::Error,
-        name: HeaderName,
-        path: PathBuf,
-    },
-
-    #[snafu(display("Invalid value for header {name}"))]
-    InvalidHeaderValue {
-        source: InvalidHeaderValue,
-        name: HeaderName,
-    },
+    #[snafu(display("Invalid scaler API headers"))]
+    Headers { source: configured_headers::Error },
 
     #[snafu(display("Failed to build the scaler API URL from endpoint {endpoint}"))]
     BuildClustersUrl {
@@ -61,7 +40,7 @@ struct ClusterStatus {
 pub struct RestScaler {
     client: Client,
     clusters_url: Url,
-    headers: Vec<(HeaderName, RestScalerHeaderValue)>,
+    headers: ConfiguredHeaders,
 }
 
 impl RestScaler {
@@ -73,14 +52,7 @@ impl RestScaler {
             .build()
             .context(ConstructHttpClientSnafu)?;
 
-        let headers = config
-            .headers
-            .iter()
-            .map(|(name, value)| {
-                let name = HeaderName::try_from(name).context(InvalidHeaderNameSnafu { name })?;
-                Ok((name, value.clone()))
-            })
-            .collect::<Result<_, Error>>()?;
+        let headers = ConfiguredHeaders::new(&config.headers).context(HeadersSnafu)?;
 
         let clusters_url = config
             .endpoint
@@ -96,26 +68,6 @@ impl RestScaler {
         })
     }
 
-    fn header_value(
-        name: &HeaderName,
-        value: &RestScalerHeaderValue,
-    ) -> Result<HeaderValue, Error> {
-        let value = match value {
-            RestScalerHeaderValue::Value(value) => value.clone(),
-            RestScalerHeaderValue::FromFile { path, prefix } => {
-                let content = std::fs::read_to_string(path).context(ReadHeaderFileSnafu {
-                    name: name.clone(),
-                    path,
-                })?;
-                format!("{prefix}{}", content.trim())
-            }
-        };
-        let mut value =
-            HeaderValue::try_from(value).context(InvalidHeaderValueSnafu { name: name.clone() })?;
-        value.set_sensitive(true);
-        Ok(value)
-    }
-
     async fn request(
         &self,
         method: Method,
@@ -128,10 +80,10 @@ impl RestScaler {
             .expect("clusters URL has path segments")
             .pop_if_empty()
             .push(cluster);
-        let mut request = self.client.request(method, url.clone());
-        for (name, value) in &self.headers {
-            request = request.header(name, Self::header_value(name, value)?);
-        }
+        let mut request = self
+            .client
+            .request(method, url.clone())
+            .headers(self.headers.header_map().context(HeadersSnafu)?);
         if let Some(body) = body {
             request = request.json(&body);
         }
@@ -196,6 +148,10 @@ mod tests {
         matchers::{body_json, header, method, path},
     };
 
+    use std::path::PathBuf;
+
+    use trino_lb_core::config::HeaderValue;
+
     use super::*;
 
     /// Deletes the token file when the test ends.
@@ -218,7 +174,7 @@ mod tests {
             endpoint: server.uri().parse().unwrap(),
             headers: [(
                 "Authorization".to_owned(),
-                RestScalerHeaderValue::FromFile {
+                HeaderValue::FromFile {
                     path: token_path.clone(),
                     prefix: "Bearer ".to_owned(),
                 },
@@ -347,11 +303,7 @@ mod tests {
             .await;
         let config = RestScalerConfig {
             endpoint: server.uri().parse().unwrap(),
-            headers: [(
-                "X-Api-Key".to_owned(),
-                RestScalerHeaderValue::Value("abc".to_owned()),
-            )]
-            .into(),
+            headers: [("X-Api-Key".to_owned(), HeaderValue::Value("abc".to_owned()))].into(),
         };
 
         assert!(

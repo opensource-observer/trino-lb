@@ -207,9 +207,15 @@ pub struct TrinoClusterConfig {
     /// Note that the path of the URL is ignored.
     pub external_endpoint: Option<Url>,
     /// Used to log into the Web UI to poll cluster stats. Defaults to user `trino-lb` with an empty
-    /// password, which a coordinator without an authenticator accepts over HTTP.
+    /// password, which a coordinator without an authenticator accepts over HTTP. Not used when
+    /// `webUiHeaders` sets `Authorization`.
     #[serde(default)]
     pub credentials: TrinoClusterCredentialsConfig,
+    /// Headers sent with every cluster stats poll. With `Authorization` set (e.g. a bearer token
+    /// for a coordinator with `web-ui.authentication.type=jwt`), trino-lb sends it instead of
+    /// logging in with `credentials`.
+    #[serde(default)]
+    pub web_ui_headers: HashMap<String, HeaderValue>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -379,12 +385,12 @@ pub struct RestScalerConfig {
     pub endpoint: Url,
     /// Headers sent with every request, e.g. for authentication.
     #[serde(default)]
-    pub headers: HashMap<String, RestScalerHeaderValue>,
+    pub headers: HashMap<String, HeaderValue>,
 }
 
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub enum RestScalerHeaderValue {
+pub enum HeaderValue {
     Value(String),
     /// Re-read on every request, so a rotated credential (e.g. a projected ServiceAccount token)
     /// is picked up. The file content is trimmed and appended to `prefix`.
@@ -395,7 +401,28 @@ pub enum RestScalerHeaderValue {
     },
 }
 
-impl Debug for RestScalerHeaderValue {
+#[derive(Snafu, Debug)]
+#[snafu(display("Failed to read the header value file {path:?}"))]
+pub struct ReadHeaderValueError {
+    source: std::io::Error,
+    path: PathBuf,
+}
+
+impl HeaderValue {
+    /// The value to send now, reading a `FromFile` value's file.
+    pub fn read(&self) -> Result<String, ReadHeaderValueError> {
+        match self {
+            Self::Value(value) => Ok(value.clone()),
+            Self::FromFile { path, prefix } => {
+                let content =
+                    std::fs::read_to_string(path).context(ReadHeaderValueSnafu { path })?;
+                Ok(format!("{prefix}{}", content.trim()))
+            }
+        }
+    }
+}
+
+impl Debug for HeaderValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Value(_) => f.debug_tuple("Value").field(&"<redacted>").finish(),

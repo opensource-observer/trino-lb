@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Optional per-cluster `webUiHeaders`, sent with every cluster stats poll. A `fromFile` value is re-read on every poll, and an `Authorization` header (e.g. a bearer token for `web-ui.authentication.type=jwt`) replaces the Web UI login.
+
+### Fixed
+
+- A refused cluster stats request is reported with its HTTP status instead of as an unparsable response.
+
 ## [0.7.0] - 2026-08-03
 
 ### Changed
