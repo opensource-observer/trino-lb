@@ -29,10 +29,6 @@ mod metrics;
 mod ui;
 mod v1;
 
-/// Largest query `POST /v1/statement` accepts. axum's 2 MB default would reject long generated
-/// queries before Trino's own `query.max-length` gets to decide.
-const MAX_STATEMENT_BYTES: usize = 10 * 1024 * 1024;
-
 #[derive(Snafu, Debug)]
 pub enum Error {
     #[snafu(display(
@@ -70,6 +66,7 @@ pub async fn start_http_server(
     cluster_group_manager: ClusterGroupManager,
     router: routing::Router,
     metrics: Arc<Metrics>,
+    max_statement_bytes: usize,
 ) -> Result<(), Error> {
     let tls_config = config.trino_lb.tls.clone();
     let ports_config = config.trino_lb.ports.clone();
@@ -107,7 +104,7 @@ pub async fn start_http_server(
         .route("/", get(|| async { Redirect::permanent("/ui/index.html") }))
         .route(
             "/v1/statement",
-            post(v1::statement::post_statement).layer(DefaultBodyLimit::max(MAX_STATEMENT_BYTES)),
+            post(v1::statement::post_statement).layer(DefaultBodyLimit::max(max_statement_bytes)),
         )
         .route(
             "/v1/statement/queued_in_trino_lb/{query_id}/{sequence_number}",

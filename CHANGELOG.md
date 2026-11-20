@@ -6,7 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Accept `POST /v1/statement` bodies up to 10 MB instead of axum's 2 MB default, so long generated queries reach Trino.
+- Accept `POST /v1/statement` bodies up to 10 MiB instead of axum's 2 MB default, so long generated queries reach Trino.
+  Set the limit in bytes with `--max-statement-bytes` or `TRINO_LB_MAX_STATEMENT_BYTES`.
 
 ### Added
 
