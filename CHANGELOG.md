@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Accept `POST /v1/statement` bodies up to 10 MB instead of axum's 2 MB default, so long generated queries reach Trino.
+
 ### Added
 
 - Optional per-cluster `webUiHeaders`, sent with every cluster stats poll. A `fromFile` value is re-read on every poll, and an `Authorization` header (e.g. a bearer token for `web-ui.authentication.type=jwt`) replaces the Web UI login.

@@ -8,6 +8,7 @@ use std::{
 
 use axum::{
     Router,
+    extract::DefaultBodyLimit,
     response::Redirect,
     routing::{delete, get, post},
 };
@@ -27,6 +28,10 @@ mod admin;
 mod metrics;
 mod ui;
 mod v1;
+
+/// Largest query `POST /v1/statement` accepts. axum's 2 MB default would reject long generated
+/// queries before Trino's own `query.max-length` gets to decide.
+const MAX_STATEMENT_BYTES: usize = 10 * 1024 * 1024;
 
 #[derive(Snafu, Debug)]
 pub enum Error {
@@ -100,7 +105,10 @@ pub async fn start_http_server(
     // See https://docs.rs/axum/latest/axum/routing/method_routing/fn.get.html
     let app = Router::new()
         .route("/", get(|| async { Redirect::permanent("/ui/index.html") }))
-        .route("/v1/statement", post(v1::statement::post_statement))
+        .route(
+            "/v1/statement",
+            post(v1::statement::post_statement).layer(DefaultBodyLimit::max(MAX_STATEMENT_BYTES)),
+        )
         .route(
             "/v1/statement/queued_in_trino_lb/{query_id}/{sequence_number}",
             get(v1::statement::get_trino_lb_statement),
