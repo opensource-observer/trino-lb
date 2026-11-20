@@ -187,6 +187,7 @@ async fn start() -> Result<(), MainError> {
         cluster_group_manager,
         router,
         Arc::clone(&metrics),
+        args.max_statement_bytes,
     )
     .await
     .context(RunHttpServersSnafu)?;

@@ -8,6 +8,7 @@ use std::{
 
 use axum::{
     Router,
+    extract::DefaultBodyLimit,
     response::Redirect,
     routing::{delete, get, post},
 };
@@ -65,6 +66,7 @@ pub async fn start_http_server(
     cluster_group_manager: ClusterGroupManager,
     router: routing::Router,
     metrics: Arc<Metrics>,
+    max_statement_bytes: usize,
 ) -> Result<(), Error> {
     let tls_config = config.trino_lb.tls.clone();
     let ports_config = config.trino_lb.ports.clone();
@@ -100,7 +102,10 @@ pub async fn start_http_server(
     // See https://docs.rs/axum/latest/axum/routing/method_routing/fn.get.html
     let app = Router::new()
         .route("/", get(|| async { Redirect::permanent("/ui/index.html") }))
-        .route("/v1/statement", post(v1::statement::post_statement))
+        .route(
+            "/v1/statement",
+            post(v1::statement::post_statement).layer(DefaultBodyLimit::max(max_statement_bytes)),
+        )
         .route(
             "/v1/statement/queued_in_trino_lb/{query_id}/{sequence_number}",
             get(v1::statement::get_trino_lb_statement),
